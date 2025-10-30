@@ -13,6 +13,7 @@ class ChessGUI:
         self.root.title("Échecs - Projet Terminale NSI")
         self.vs_ai = vs_ai
         self.ai_level = ai_level
+        self.game_over = False
         self.state = GameState(vs_ai=vs_ai, ai_level=ai_level, total_time=total_time)
         self.canvas = tk.Canvas(root, width=BOARD_SIZE*SQUARE, height=BOARD_SIZE*SQUARE)
         self.canvas.pack(side=tk.LEFT, padx=10, pady=10)
@@ -75,15 +76,14 @@ class ChessGUI:
     def _tick(self):
         self.update_ui()
         if self.state.vs_ai and not self.state.white_to_move:
-            # schedule AI move (non-blocking: call through after to keep UI responsive)
             self.root.after(50, self._ai_move)
         self.root.after(200, self._tick)
 
     def update_ui(self):
-        """Met à jour les étiquettes, les temps et le statut de la partie."""
+        if self.game_over:
+            return
         from engine.movegen import in_check, is_checkmate, is_stalemate
 
-        # --- Statut général ---
         side = "Blancs" if self.state.white_to_move else "Noirs"
         status = f"À jouer : {side}"
         if in_check(self.state.board, self.state.white_to_move):
@@ -93,19 +93,15 @@ class ChessGUI:
         now = time.time()
         move_elapsed = now - (self.state.move_start_time or now)
 
-        # --- Formatage lisible du temps ---
         def fmt(seconds):
             seconds = max(0, int(seconds))
             m, s = divmod(seconds, 60)
             return f"{m:02d}:{s:02d}"
 
-        # --- Mise à jour de l'affichage du temps ---
         if self.state.total_time:
-            # Mode TEMPS IMPARTI
             w_remain = self.state.remaining_time['W']
             b_remain = self.state.remaining_time['B']
 
-            # Décrément visuel du joueur en cours
             if self.state.white_to_move:
                 w_display = fmt(w_remain - move_elapsed)
                 b_display = fmt(b_remain)
@@ -116,26 +112,25 @@ class ChessGUI:
             self.lbl_white_total.config(text=f"⏱ Blancs restant : {w_display}")
             self.lbl_black_total.config(text=f"⏱ Noirs restant : {b_display}")
 
-            # Vérifie la fin du temps
             if self.state.white_to_move and (w_remain - move_elapsed) <= 0:
                 from tkinter import messagebox
+                self.game_over = True
                 messagebox.showinfo("Temps écoulé", "Temps écoulé ! Les Noirs gagnent.")
                 self.root.destroy()
                 return
             elif (not self.state.white_to_move) and (b_remain - move_elapsed) <= 0:
                 from tkinter import messagebox
+                self.game_over = True
                 messagebox.showinfo("Temps écoulé", "Temps écoulé ! Les Blancs gagnent.")
                 self.root.destroy()
                 return
 
         else:
-            # Mode LIBRE (pas de limite)
             white_total = self.state.remaining_time['W'] + (move_elapsed if self.state.white_to_move else 0)
             black_total = self.state.remaining_time['B'] + (move_elapsed if not self.state.white_to_move else 0)
             self.lbl_white_total.config(text=f"⏱ Blancs temps : {fmt(white_total)}")
             self.lbl_black_total.config(text=f"⏱ Noirs temps : {fmt(black_total)}")
 
-        # --- Dernier coup ---
         if self.state.move_history:
             last = self.state.move_history[-1]
             mv_str = f"{last.get('player','?')}: {last.get('algebraic','?')} ({last.get('time',0.0):.2f}s)"
@@ -143,7 +138,6 @@ class ChessGUI:
         else:
             self.lbl_last_move.config(text="Dernier coup: -")
 
-        # --- Historique complet ---
         self.move_log.delete(1.0, tk.END)
         for i, move in enumerate(self.state.move_history, start=1):
             self.move_log.insert(tk.END, f"{i}. {move.get('algebraic','')}  {move.get('time',0.0):.2f}s\n")
@@ -194,8 +188,10 @@ class ChessGUI:
             self.update_ui()
             if is_checkmate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
                 winner = "Blancs" if not self.state.white_to_move else "Noirs"
+                self.game_over = True
                 messagebox.showinfo("Fin de partie", f"Échec et mat ! {winner} gagnent.")
             elif is_stalemate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
+                self.game_over = True
                 messagebox.showinfo("Fin de partie", "Pat ! (égalité)")
             return
         if p!='.' and p.isupper() == self.state.white_to_move:
@@ -270,21 +266,16 @@ class ChessGUI:
         if not self.state.move_history:
             messagebox.showinfo("Annuler", "Aucun coup à annuler.")
             return
-        # Simple undo: reload from move_history by reconstructing from initial position
         last = self.state.move_history.pop()
-        # full-accurate undo would require storing full states or move stack with previous castle/ep info.
-        # We'll rebuild state from move_history for a reliable "undo" (keeps all other features).
         initial_state = GameState(vs_ai=self.state.vs_ai, ai_level=self.state.ai_level)
         initial_state.board = initial_state.board  # start
         initial_state.can_castle = {'K':True,'Q':True,'k':True,'q':True}
         initial_state.en_passant = None
         initial_state.player_total = {'W':0.0,'B':0.0}
         initial_state.move_history = []
-        # replay moves remaining in move_history
         for mv in self.state.move_history:
             move = mv.get('move')
             promote = None
-            # if algebraic ends with promotion notation? we stored promote as plain move in move tuple normally
             if not move:
                 continue
             initial_state.apply_move(move, promote_to=promote)
@@ -295,18 +286,28 @@ class ChessGUI:
         self.draw_board(); self.update_ui()
 
     def _ai_move(self):
-        if not self.state.vs_ai or self.state.white_to_move:
+        if getattr(self, "game_over", False):
+            self.ai_pending = False
             return
+
         gs = {'board': self.state.board, 'can_castle': self.state.can_castle, 'en_passant': self.state.en_passant}
         ai_func = AI_BY_NAME.get(self.ai_level, list(AI_BY_NAME.values())[0])
-        move = ai_func({'board': self.state.board, 'can_castle': self.state.can_castle, 'en_passant': self.state.en_passant})
+        move = ai_func(gs)
+
+        self.ai_pending = False
+
         if not move:
             if is_checkmate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
-                winner = "Blancs"
-                messagebox.showinfo("Fin de partie", f"Échec et mat ! {winner} gagnent.")
+                self.game_over = True
+                messagebox.showinfo("Fin de partie", "Échec et mat ! Les Blancs gagnent.")
+                return
             elif is_stalemate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
+                self.game_over = True
                 messagebox.showinfo("Fin de partie", "Pat ! Égalité.")
-            return
+                return
+            else:
+                return
+
         now = time.time()
         dt = now - (self.state.move_start_time or now)
         r1c1, r2c2 = move
@@ -315,19 +316,28 @@ class ChessGUI:
         if piece.upper()=='P' and ((piece.isupper() and r2c2[0]==0) or (piece.islower() and r2c2[0]==7)):
             promote = 'q' if piece.islower() else 'Q'
         self.state.apply_move(move, promote_to=promote)
-        # AI is black in our UI flow
+
         if self.state.total_time:
             self.state.remaining_time['B'] -= dt
             if self.state.remaining_time['B'] < 0:
                 self.state.remaining_time['B'] = 0
         else:
             self.state.remaining_time['B'] += dt
+
         alg = f"{self.idx_to_alg(r1c1[0],r1c1[1])}{self.idx_to_alg(r2c2[0],r2c2[1])}"
         self.state.move_history.append({'move': move, 'algebraic': alg, 'time': dt, 'player': 'B'})
         self.state.move_start_time = time.time()
         self.draw_board()
         self.update_ui()
 
-    # small helpers to avoid import cycles: idx_to_alg from board
+        if is_checkmate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
+            self.game_over = True
+            messagebox.showinfo("Fin de partie", "Échec et mat ! Les Noirs gagnent.")
+            return
+        if is_stalemate(self.state.board, self.state.white_to_move, self.state.can_castle, self.state.en_passant):
+            self.game_over = True
+            messagebox.showinfo("Fin de partie", "Pat ! Égalité.")
+            return
+
     def idx_to_alg(self, r, c):
         return f"{FILES[c]}{8-r}"
