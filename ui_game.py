@@ -82,7 +82,6 @@ class ChessGUI:
     def update_ui(self):
         if self.game_over:
             return
-        from engine.movegen import in_check, is_checkmate, is_stalemate
 
         side = "Blancs" if self.state.white_to_move else "Noirs"
         status = f"À jouer : {side}"
