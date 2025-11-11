@@ -4,9 +4,6 @@ from .movegen import make_move
 
 class GameState:
     def __init__(self, vs_ai=False, ai_level='Facile', total_time=None):
-        """
-        total_time : temps total par joueur (en secondes) — None = mode libre
-        """
         self.board = copy.deepcopy(START_BOARD)
         self.white_to_move = True
         self.can_castle = {'K': True, 'Q': True, 'k': True, 'q': True}
@@ -17,16 +14,12 @@ class GameState:
         self.vs_ai = vs_ai
         self.ai_level = ai_level
 
-        # --- Ajout pour mode temps imparti ---
-        self.total_time = total_time  # en secondes (ex: 600)
+        self.total_time = total_time
         if total_time and total_time > 0:
-            # mode temps imparti
             self.remaining_time = {'W': float(total_time), 'B': float(total_time)}
         else:
-            # mode libre (affiche temps joué)
             self.total_time = None
             self.remaining_time = {'W': 0.0, 'B': 0.0}
-        # --------------------------------------
 
     def start_move_timer(self):
         self.move_start_time = time.time()
@@ -37,11 +30,9 @@ class GameState:
         dt = time.time() - self.move_start_time
         player = 'W' if self.white_to_move else 'B'
 
-        # Si mode libre
         if not self.total_time:
             self.remaining_time[player] += dt
         else:
-            # Mode temps imparti → on soustrait
             self.remaining_time[player] -= dt
             if self.remaining_time[player] < 0:
                 self.remaining_time[player] = 0
