@@ -6,6 +6,9 @@ from engine.timecontrol import GameState
 from engine.movegen import legal_moves, is_checkmate, is_stalemate, in_check
 from engine.ai import AI_BY_NAME
 from engine.board import UNICODE, FILES, BOARD_SIZE, SQUARE, WHITE_COLOR, BLACK_COLOR, HIGHLIGHT_COLOR, MOVE_MARK_COLOR, SELECT_BORDER
+# ----- AJOUTS IMPORTANTS-----
+from engine.pile_liste import Liste_chaine, Pile_LIFO
+# ----------------------------
 
 class ChessGUI:
     def __init__(self, root, vs_ai=False, ai_level='Facile', total_time=None):
@@ -15,6 +18,12 @@ class ChessGUI:
         self.ai_level = ai_level
         self.game_over = False
         self.state = GameState(vs_ai=vs_ai, ai_level=ai_level, total_time=total_time)
+        # ----- AJOUTS IMPORTANTS-----
+        self.history = Pile_LIFO()
+        self.positions = Liste_chaine()
+        self.positions.append([row[:] for row in self.state.board])
+        # ----------------------------
+
         self.canvas = tk.Canvas(root, width=BOARD_SIZE*SQUARE, height=BOARD_SIZE*SQUARE)
         self.canvas.pack(side=tk.LEFT, padx=10, pady=10)
         self.info_frame = tk.Frame(root)
@@ -44,6 +53,10 @@ class ChessGUI:
         self.draw_board()
         self.update_ui()
         self.root.after(200, self._tick)
+        # ----- AJOUTS IMPORTANTS-----
+        self.history = Pile_LIFO()
+        self.positions = Liste_chaine()
+        # ----------------------------
 
     def draw_board(self):
         self.canvas.delete("all")
@@ -171,6 +184,10 @@ class ChessGUI:
             dt = now - (self.state.move_start_time or now)
             alg = f"{self.idx_to_alg(self.selected[0],self.selected[1])}{self.idx_to_alg(r,c)}"
             self.state.apply_move(move, promote_to=promote_choice)
+            # ----- AJOUTS IMPORTANTS-----
+            self.history.push(move)
+            self.positions.append([row[:] for row in self.state.board])
+            # ----------------------------
             player = 'W' if not self.state.white_to_move else 'B'
             if self.state.total_time:
                 self.state.remaining_time[player] -= dt
@@ -262,27 +279,28 @@ class ChessGUI:
             messagebox.showerror("Erreur", f"Impossible de charger :\n{e}")
 
     def undo_last(self):
-        if not self.state.move_history:
+        # ----- AJOUTS IMPORTANTS-----
+        if self.history.is_empty() or len(self.positions) <= 1:
             messagebox.showinfo("Annuler", "Aucun coup à annuler.")
             return
-        last = self.state.move_history.pop()
-        initial_state = GameState(vs_ai=self.state.vs_ai, ai_level=self.state.ai_level)
-        initial_state.board = initial_state.board  # start
-        initial_state.can_castle = {'K':True,'Q':True,'k':True,'q':True}
-        initial_state.en_passant = None
-        initial_state.player_total = {'W':0.0,'B':0.0}
-        initial_state.move_history = []
-        for mv in self.state.move_history:
-            move = mv.get('move')
-            promote = None
-            if not move:
-                continue
-            initial_state.apply_move(move, promote_to=promote)
-            initial_state.move_history.append(mv)
-        self.state = initial_state
-        self.selected=None; self.legal_targets=[]
-        messagebox.showinfo("Annuler", "Coup annulé (relecture de l'historique).")
-        self.draw_board(); self.update_ui()
+
+        last_move = self.history.pop()
+        self.positions.pop()
+        prev_node = self.positions.tail
+        if not prev_node:
+            initial = GameState(vs_ai=self.state.vs_ai, ai_level=self.state.ai_level)
+            self.state.board = [row[:] for row in initial.board]
+        else:
+            self.state.board = [row[:] for row in prev_node.data]
+        if self.state.move_history:
+            self.state.move_history.pop()
+
+        self.state.white_to_move = not self.state.white_to_move
+        self.selected = None
+        self.legal_targets = []
+        self.draw_board()
+        self.update_ui()
+        # ----------------------------
 
     def _ai_move(self):
         if getattr(self, "game_over", False):
@@ -314,7 +332,13 @@ class ChessGUI:
         promote = None
         if piece.upper()=='P' and ((piece.isupper() and r2c2[0]==0) or (piece.islower() and r2c2[0]==7)):
             promote = 'q' if piece.islower() else 'Q'
+
         self.state.apply_move(move, promote_to=promote)
+
+        # ----- AJOUTS IMPORTANTS-----
+        self.history.push(move)
+        self.positions.append([row[:] for row in self.state.board])
+        # ----------------------------
 
         if self.state.total_time:
             self.state.remaining_time['B'] -= dt
@@ -337,6 +361,7 @@ class ChessGUI:
             self.game_over = True
             messagebox.showinfo("Fin de partie", "Pat ! Égalité.")
             return
+
 
     def idx_to_alg(self, r, c):
         return f"{FILES[c]}{8-r}"
