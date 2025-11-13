@@ -6,6 +6,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white" alt="Python Version">
   <img src="https://img.shields.io/badge/Interface-Tkinter-green.svg" alt="Tkinter">
+  <img src="https://img.shields.io/badge/Licence-MIT-yellow.svg" alt="MIT License">
 </p>
 
 <h2 align="center">🚀 Présentation</h2>
