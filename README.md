@@ -156,6 +156,7 @@ python main.py
   <tr><td>🧑‍💻 Développeurs</td><td>Waroc, Tom, Marwan, Léo</td></tr>
   <tr><td>📆 Année</td><td>2025–2026</td></tr>
   <tr><td>💬 Langage</td><td>Python 3</td></tr>
+   <tr><td>⚖️ Licence</td><td>MIT</td></tr>
 </table>
 
 <hr>
